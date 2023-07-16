@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Home</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM"
+      crossorigin="anonymous"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/notie/4.3.1/notie.min.css"
+      integrity="sha512-UrjLcAek5jbj1vwGbXkviPHtgSNVNQCedX7cBIMDdSI2iZtUcZcoTh2Sqc8R9mVcijOjFUi1IlxhfrE1uWaIog=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <style>
+      .chatbox {
+        outline: 1px solid silver;
+        min-height: 160px;
+        padding: 0.5em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="row">
+        <div class="col">
+          <h1 class="mt-3">This is the home page</h1>
+          <hr />
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-md-8">
+          <h3>Chat</h3>
+          <div class="form-group">
+            <label for="username">Username:</label>
+            <input
+              type="text"
+              name="username"
+              id="username"
+              class="form-control"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="message">Message:</label>
+            <input
+              type="text"
+              name="message"
+              id="message"
+              class="form-control"
+              autocomplete="off"
+            />
+          </div>
+          <hr />
+
+          <a
+            href="javascript:void(0);"
+            class="btn btn-outline-secondary"
+            id="sendBtn"
+            >Send Message</a
+          >
+
+          <div id="status" class="mt-2 float-end"></div>
+
+          <input type="hidden" name="action" id="action" />
+
+          <div id="output" class="chatbox"></div>
+        </div>
+        <div class="col-md-4">
+          <h3>Who's Online</h3>
+          <ul id="online_users"></ul>
+        </div>
+      </div>
+    </div>
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/notie/4.3.1/notie.min.js"
+      integrity="sha512-NHRCwRf2LnVSlLDejCA9oS3fG3/FLSQIPCjAWl3M7tVi5wszwr6FxkjotWnQDXLE+aLKcxRrzFDNEgXj9nvkPw=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="/static/reconnecting-websocket.min.js"></script>
+    <script>
+      let socket = null;
+      let chatbox = document.getElementById("output");
+      let UserField = document.getElementById("username");
+      let MessageField = document.getElementById("message");
+
+      window.onbeforeunload = () => {
+        console.log("Leaving");
+        let jsonData = {};
+        jsonData["action"] = "left";
+        socket.send(JSON.stringify(jsonData));
+      };
+
+      document.addEventListener("DOMContentLoaded", function () {
+        socket = new ReconnectingWebSocket("ws://127.0.0.1:5000/ws", null, {
+          debug: true,
+          reconnectInterval: 3000,
+        });
+
+        const offline = `<span class="badge bg-danger">Not connected</span>`;
+        const online = `<span class="badge bg-success">Connected</span>`;
+        let statusDiv = document.getElementById("status");
+
+        socket.onopen = () => {
+          console.log("Successfully connected");
+          statusDiv.innerHTML = online;
+        };
+
+        socket.onclose = () => {
+          console.log("Connection closed");
+          statusDiv.innerHTML = offline;
+        };
+
+        socket.onerror = () => {
+          console.log("There was an error");
+          statusDiv.innerHTML = offline;
+        };
+
+        socket.onmessage = (msg) => {
+          let data = JSON.parse(msg.data);
+          console.log(data);
+          console.log("Action is", data.action);
+          switch (data.action) {
+            case "list_users":
+              let ul = document.getElementById("online_users");
+              while (ul.firstChild) ul.removeChild(ul.firstChild);
+              console.log(data.connected_users);
+              if (data.connected_users.length > 0) {
+                data.connected_users.forEach((item) => {
+                  let li = document.createElement("li");
+                  li.appendChild(document.createTextNode(item));
+                  ul.appendChild(li);
+                });
+              }
+              break;
+            case "broadcast":
+              chatbox.innerHTML = chatbox.innerHTML + data.message + "<br>";
+              break;
+          }
+        };
+
+        let userInput = document.getElementById("username");
+        userInput.addEventListener("change", function () {
+          let jsonData = {};
+          jsonData["action"] = "username";
+          jsonData["username"] = this.value;
+          socket.send(JSON.stringify(jsonData));
+        });
+
+        document
+          .getElementById("message")
+          .addEventListener("keydown", (event) => {
+            if (event.code === "Enter") {
+              if (!socket) {
+                console.log("No connection");
+                return false;
+              }
+              event.preventDefault();
+              event.stopPropagation();
+              if (UserField.value === "" || MessageField.value === "") {
+                errorMessage("Fill out user and message!");
+                return false;
+              } else {
+                sendMessage();
+              }
+            }
+          });
+        document.getElementById("sendBtn").addEventListener("click", () => {
+          if (UserField.value === "" || MessageField.value === "") {
+            errorMessage("Fill out user and message!");
+            return false;
+          } else {
+            sendMessage();
+          }
+        });
+      });
+
+      function sendMessage() {
+        let jsonData = {};
+        jsonData["action"] = "broadcast";
+        jsonData["username"] = document.getElementById("username").value;
+        jsonData["message"] = document.getElementById("message").value;
+        socket.send(JSON.stringify(jsonData));
+        document.getElementById("message").value = "";
+      }
+      function errorMessage(msg) {
+        notie.alert({
+          type: "error",
+          text: msg,
+          time: 2,
+        });
+      }
+    </script>
+  </body>
+</html>
